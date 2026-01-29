@@ -396,7 +396,16 @@ def _get_fsdp2_mesh(module: nn.Module):
         return fsdp_state._fsdp_param_group.post_forward_mesh_info.mesh
 
 
-def _get_module_name(module: nn.Module, root_model: nn.Module, name_to_module: dict | None = None):
+def _get_module_name(
+    module: nn.Module,
+    root_model: nn.Module,
+    name_to_module: dict | None = None,
+    module_to_name: dict | None = None,
+):
+    # Use reverse lookup dict if provided (O(1) lookup)
+    if module_to_name is not None:
+        return module_to_name.get(module)
+    # Fall back to linear search (O(n) - avoid this for large models)
     if name_to_module is None:
         name_to_module = dict(root_model.named_modules())
     target_module_name = next((name for name, m in name_to_module.items() if m is module), None)
@@ -404,7 +413,10 @@ def _get_module_name(module: nn.Module, root_model: nn.Module, name_to_module: d
 
 
 def _get_enclosing_fsdp_module(
-    module: nn.Module, root_model: nn.Module, name_to_module: dict | None = None
+    module: nn.Module,
+    root_model: nn.Module,
+    name_to_module: dict | None = None,
+    module_to_name: dict | None = None,
 ):
     """Get the enclosing FSDP module for a given module.
 
@@ -412,6 +424,7 @@ def _get_enclosing_fsdp_module(
         module: The module to find the enclosing FSDP for.
         root_model: The root model containing the module.
         name_to_module: Optional pre-computed dict mapping names to modules (for performance).
+        module_to_name: Optional pre-computed reverse dict for O(1) module->name lookup.
     """
     if isinstance(module, FSDPModule):
         return module
@@ -419,7 +432,7 @@ def _get_enclosing_fsdp_module(
     if name_to_module is None:
         name_to_module = dict(root_model.named_modules())
 
-    target_module_name = _get_module_name(module, root_model, name_to_module)
+    target_module_name = _get_module_name(module, root_model, name_to_module, module_to_name)
 
     if target_module_name is None:
         raise ValueError(f"Module {module} not found in the root model {root_model}.")
@@ -480,7 +493,9 @@ def fsdp2_weight_access_and_writeback_context(module: nn.Module, root_model: nn.
 
 
 @contextmanager
-def enable_weight_access_and_writeback(module, root_model, name_to_module: dict | None = None):
+def enable_weight_access_and_writeback(
+    module, root_model, name_to_module: dict | None = None, module_to_name: dict | None = None
+):
     """Enable weight access and writeback for a module.
 
     Useful for modules with weight not intact such as Linear layer in FSDP wrapped model or
@@ -491,8 +506,9 @@ def enable_weight_access_and_writeback(module, root_model, name_to_module: dict 
         root_model: The root model containing the module.
         name_to_module: Optional pre-computed dict mapping names to modules (for performance).
                         If not provided, will be computed on-the-fly.
+        module_to_name: Optional pre-computed reverse dict for O(1) module->name lookup.
     """
-    if _get_enclosing_fsdp_module(module, root_model, name_to_module) is not None:
+    if _get_enclosing_fsdp_module(module, root_model, name_to_module, module_to_name) is not None:
         context = fsdp2_weight_access_and_writeback_context(module, root_model)
     elif is_quantized_parallel_linear(module) and hasattr(module, "_hf_tp_plan"):
         # HF transformers TP sharded linear layer
