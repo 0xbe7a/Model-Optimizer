@@ -49,12 +49,14 @@ __all__ = ["awq", "max_calibrate", "smoothquant", "svdquant"]
 
 def weight_only_quantize(model: nn.Module):
     """Just quantize the weights of the model."""
+    # Pre-compute name_to_module dict ONCE to avoid O(n^2) complexity in enable_weight_access_and_writeback
+    name_to_module = dict(model.named_modules())
     seen_modules = set()
-    for name, module in model.named_modules():
+    for name, module in name_to_module.items():
         if module in seen_modules:
             continue
         for weight_name in weight_attr_names(module):
-            with enable_weight_access_and_writeback(module, model):
+            with enable_weight_access_and_writeback(module, model, name_to_module):
                 weight_quantizer = getattr(
                     module, quantizer_attr_names(weight_name).weight_quantizer
                 )
