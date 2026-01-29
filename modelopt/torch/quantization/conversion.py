@@ -221,9 +221,12 @@ def set_quantizer_by_cfg(quant_model: nn.Module, quant_cfg: QuantizeQuantCfgType
     See :meth:`set_quantizer_attribute <modelopt.torch.quantization.conversion.set_quantizer_attribute>`
     for more details.
     """
+    # Pre-compute name_to_module dict ONCE to avoid O(n^2) complexity
+    name_to_module = dict(quant_model.named_modules())
+
     quant_cfg = quant_cfg.copy()
     if "default" in quant_cfg:
-        set_quantizer_attribute(quant_model, "*", quant_cfg["default"])
+        set_quantizer_attribute(quant_model, "*", quant_cfg["default"], name_to_module=name_to_module)
         quant_cfg.pop("default")
 
     for pattern, cfg in quant_cfg.items():
@@ -233,9 +236,9 @@ def set_quantizer_by_cfg(quant_model: nn.Module, quant_cfg: QuantizeQuantCfgType
                 f"Expected a dictionary for quantizer configuration for child tensor quantizers of {parent_class}."
             )
             for sub_pattern, sub_cfg in cfg.items():
-                set_quantizer_attribute(quant_model, sub_pattern, sub_cfg, parent_class)
+                set_quantizer_attribute(quant_model, sub_pattern, sub_cfg, parent_class, name_to_module=name_to_module)
             continue
-        set_quantizer_attribute(quant_model, pattern, cfg)
+        set_quantizer_attribute(quant_model, pattern, cfg, name_to_module=name_to_module)
 
 
 def set_quantizer_attribute(
@@ -250,6 +253,7 @@ def set_quantizer_attribute(
     | dict
     | list[dict],
     parent_class: type | None = None,
+    name_to_module: dict | None = None,
 ):
     """Finegrained adjustment of quantizer attribute by wildcard or filter function.
 
@@ -272,8 +276,12 @@ def set_quantizer_attribute(
             for more details on the supported attributes and their types.
         parent_class: (Optional) The parent class of the quantizer modules matching ``wildcard_or_filter_func`` which
             should be adjusted. If ``None``, all the matching quantizer modules will be adjusted.
+        name_to_module: (Optional) Pre-computed dict mapping module names to modules for performance.
+            If not provided, will be computed on-the-fly.
     """
-    for name, module in quant_model.named_modules():
+    if name_to_module is None:
+        name_to_module = dict(quant_model.named_modules())
+    for name, module in name_to_module.items():
         if isinstance(module, (TensorQuantizer, SequentialQuantizer)):
             if isinstance(wildcard_or_filter_func, str):
                 if not fnmatch.fnmatch(name, wildcard_or_filter_func):
