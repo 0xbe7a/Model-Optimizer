@@ -197,10 +197,16 @@ def init_quantized_weights(
         mtq.compress(model, config=mtq.CompressConfig(quant_gemm=quant_gemm))
         _device_map = get_model_device_map(model, gpu_mem_percentage)
 
+        # Support disk offloading for very large models
+        # Use home directory to avoid tmpfs issues with /tmp on some systems
+        import os
+        default_offload = os.path.join(os.path.expanduser("~"), ".cache", "modelopt_offload")
+        offload_folder = kwargs.pop("offload_folder", default_offload)
         return load_checkpoint_and_dispatch(
             model,
             checkpoint=pretrained_model_name_or_path,
             device_map=_device_map,
+            offload_folder=offload_folder,
             *args,
             **kwargs,
         )
